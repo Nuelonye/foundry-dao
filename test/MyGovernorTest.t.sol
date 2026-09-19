@@ -13,10 +13,10 @@ contract MyGovernorTest is Test {
     MyGovernor myGovernor;
     TimeLock timelock;
 
-    address public USER = makeAddr("user");
+    address public user = makeAddr("user");
     uint256 public constant INITIAL_SUPPLY = 100 ether;
 
-    address[] propsers;
+    address[] proposers;
     address[] executors;
 
     uint256[] values;
@@ -29,11 +29,11 @@ contract MyGovernorTest is Test {
 
     function setUp() public {
         govToken = new GovToken(msg.sender);
-        govToken.mint(USER, INITIAL_SUPPLY);
+        govToken.mint(user, INITIAL_SUPPLY);
 
-        vm.startPrank(USER);
-        govToken.delegate(USER);
-        timelock = new TimeLock(MIN_DELAY, propsers, executors);
+        vm.startPrank(user);
+        govToken.delegate(user);
+        timelock = new TimeLock(MIN_DELAY, proposers, executors);
         myGovernor = new MyGovernor(govToken, timelock);
 
         bytes32 proposarRole = timelock.PROPOSER_ROLE();
@@ -42,7 +42,7 @@ contract MyGovernorTest is Test {
 
         timelock.grantRole(proposarRole, address(myGovernor));
         timelock.grantRole(executorRole, address(0));
-        timelock.revokeRole(adminRole, USER);
+        timelock.revokeRole(adminRole, user);
         vm.stopPrank();
 
         box = new Box();
@@ -89,7 +89,7 @@ contract MyGovernorTest is Test {
         // }
 
         uint8 voteWay = 1; // voting yes
-        vm.prank(USER);
+        vm.prank(user);
         myGovernor.castVoteWithReason(proposalId, voteWay, reason);
 
         vm.warp(block.timestamp + VOTING_PERIOD + 1);
