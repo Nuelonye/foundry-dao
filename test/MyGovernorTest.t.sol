@@ -7,10 +7,12 @@ import {GovToken} from "../src/GovToken.sol";
 import {MyGovernor} from "../src/MyGovernor.sol";
 import {TimeLock} from "../src/TimeLock.sol";
 
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
 contract MyGovernorTest is Test {
     Box box;
     GovToken govToken;
-    MyGovernor myGovernor;
+    MyGovernor governor;
     TimeLock timelock;
 
     address public user = makeAddr("user");
@@ -23,38 +25,43 @@ contract MyGovernorTest is Test {
     bytes[] calldatas;
     address[] targets;
 
-    uint256 public MIN_DELAY;
+    // NOTE: on Ethereum, we assume a block takes 12 seconds to be comleted
+    // Therefore 3600 * 12 = 43,200 i.e The MIN_DELAY == 12 hours and NOT actually 2 hours (3600sec)
+    uint256 public constant MIN_DELAY = 3600;
     uint256 public VOTING_DELAY;
     uint256 public VOTING_PERIOD;
 
     function setUp() public {
-        govToken = new GovToken(msg.sender);
+        govToken = new GovToken();
         govToken.mint(user, INITIAL_SUPPLY);
 
         vm.startPrank(user);
+        // having token != can vote, you delegate your token to whoever(in this case ourself) in oder to have voting power
         govToken.delegate(user);
         timelock = new TimeLock(MIN_DELAY, proposers, executors);
-        myGovernor = new MyGovernor(govToken, timelock);
+        governor = new MyGovernor(govToken, timelock);
 
+        // Get the different roles
         bytes32 proposarRole = timelock.PROPOSER_ROLE();
         bytes32 executorRole = timelock.EXECUTOR_ROLE();
         bytes32 adminRole = timelock.DEFAULT_ADMIN_ROLE();
 
-        timelock.grantRole(proposarRole, address(myGovernor));
-        timelock.grantRole(executorRole, address(0));
-        timelock.revokeRole(adminRole, user);
+        // Grant roles
+        timelock.grantRole(proposarRole, address(governor)); // only governor can propose
+        timelock.grantRole(executorRole, address(0)); // anyone can execute
+        timelock.revokeRole(adminRole, user); // user will no longer be the admin
         vm.stopPrank();
 
         box = new Box();
+        // DAO(MyGovernor) owns -> TimeLock owns -> Box
         box.transferOwnership(address(timelock));
 
-        VOTING_DELAY = myGovernor.votingDelay(); // how many blocks till a vote is active
-        VOTING_PERIOD = myGovernor.votingPeriod(); // This is one Week, exactly how it was implemented in Governor contract
-        MIN_DELAY = timelock.getMinDelay(); // 1 hour - delay after a vote passes
+        VOTING_DELAY = governor.votingDelay(); // 7200 - 1 day before a proposal is active for voting
+        VOTING_PERIOD = governor.votingPeriod(); // 50400 - 1 Week before it can be executed, exactly how it's implemented in Governor
     }
 
     function testCantUpdateBoxWithoutGovernance() public {
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         box.store(1);
     }
 
@@ -68,16 +75,16 @@ contract MyGovernorTest is Test {
         targets.push(address(box));
 
         // 1. Propose to the DAO
-        uint256 proposalId = myGovernor.propose(targets, values, calldatas, description);
+        uint256 proposalId = governor.propose(targets, values, calldatas, description);
 
         // View the state of the proposal
-        console.log("Delay: ", myGovernor.votingDelay());
-        console.log("Proposal State: ", uint256(myGovernor.state(proposalId)));
+        console.log("Delay: ", VOTING_DELAY);
+        console.log("Proposal State: ", uint256(governor.state(proposalId)));
 
-        vm.warp(block.timestamp + myGovernor.votingDelay() + 1);
-        vm.roll(block.number + myGovernor.votingDelay() + 1);
+        vm.warp(block.timestamp + VOTING_DELAY + 1);
+        vm.roll(block.number + VOTING_DELAY + 1);
 
-        console.log("Proposal State: ", uint256(myGovernor.state(proposalId)));
+        console.log("Proposal State: ", uint256(governor.state(proposalId)));
 
         // 2. Vote on proposal
         string memory reason = "Whatever reason you like";
@@ -90,20 +97,20 @@ contract MyGovernorTest is Test {
 
         uint8 voteWay = 1; // voting yes
         vm.prank(user);
-        myGovernor.castVoteWithReason(proposalId, voteWay, reason);
+        governor.castVoteWithReason(proposalId, voteWay, reason);
 
         vm.warp(block.timestamp + VOTING_PERIOD + 1);
         vm.roll(block.number + VOTING_PERIOD + 1);
 
-        // 3. Queue the Tx
+        // 3. Queue the Tx - Proposal has passed but we have to wait
         bytes32 descriptionHash = keccak256(abi.encodePacked(description));
-        myGovernor.queue(targets, values, calldatas, descriptionHash);
+        governor.queue(targets, values, calldatas, descriptionHash);
 
         vm.warp(block.timestamp + MIN_DELAY + 1);
         vm.roll(block.number + MIN_DELAY + 1);
 
         // 4. Execute the TX
-        myGovernor.execute(targets, values, calldatas, descriptionHash);
+        governor.execute(targets, values, calldatas, descriptionHash);
 
         assert(box.getNumber() == valueToStore);
         console.log("Box Value: ", box.getNumber());
