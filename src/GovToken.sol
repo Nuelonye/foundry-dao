@@ -7,7 +7,7 @@ import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Vo
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 contract GovToken is ERC20, EIP712, ERC20Votes {
-    constructor(address initialOwner) ERC20("GovToken", "GVT") EIP712("GovToken", "1") {}
+    constructor() ERC20("GovToken", "GVT") EIP712("GovToken", "1") {}
 
     function mint(address to, uint256 amount) public {
         _mint(to, amount);
